@@ -4,6 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,user-scalable=no">
 <title>منچ</title>
+<script src="https://cdn.socket.io/4.7.5/socket.io.min.js"></script>
 <style>
 html,body{margin:0;padding:0;background:#0d1117;color:#fff;font-family:system-ui,sans-serif;height:100%;overflow:hidden;}
 #settings{position:fixed;inset:0;display:flex;flex-direction:column;padding:20px;box-sizing:border-box;overflow-y:auto;}
@@ -23,12 +24,19 @@ h1{text-align:center;font-size:18px;margin:10px 0;}
 #back{position:fixed;top:10px;right:10px;padding:6px 12px;background:rgba(255,255,255,.1);color:#fff;border:1px solid rgba(255,255,255,.2);border-radius:8px;font-family:inherit;cursor:pointer;z-index:10;}
 #mute{position:fixed;top:10px;left:10px;padding:6px 12px;background:rgba(255,255,255,.1);color:#fff;border:1px solid rgba(255,255,255,.2);border-radius:8px;font-family:inherit;cursor:pointer;z-index:10;}
 #err{position:fixed;bottom:0;left:0;right:0;background:#7f1d1d;color:#fff;padding:8px;font-size:12px;font-family:monospace;display:none;z-index:999;direction:ltr;text-align:left;max-height:40vh;overflow:auto;white-space:pre-wrap;}
+#roomUI{position:fixed;inset:0;background:#0d1117;z-index:50;display:none;flex-direction:column;padding:20px;align-items:center;justify-content:center;gap:16px;}
+#roomUI.on{display:flex;}
+#roomUI input{padding:14px;font-size:20px;text-align:center;background:#1c2330;color:#fff;border:2px solid #2f81f7;border-radius:12px;font-family:inherit;width:220px;letter-spacing:6px;}
+#roomUI button{padding:14px 24px;font-size:16px;font-weight:700;background:#2f81f7;color:#fff;border:none;border-radius:12px;font-family:inherit;cursor:pointer;min-width:220px;}
+#roomUI button.alt{background:#1c2330;border:1px solid #2f81f7;}
+#roomUI .code-box{font-size:32px;font-weight:900;letter-spacing:8px;color:#2f81f7;padding:20px 40px;background:#1c2330;border-radius:12px;}
+#roomUI .hint{opacity:.7;font-size:14px;text-align:center;max-width:300px;}
 </style>
 </head>
 <body>
 <div id="settings">
   <h1>تنظیمات</h1>
-  <div class="row"><span>حالت بازی</span><div class="opts" data-k="players"><button data-v="1v1">۱ نفره</button><button data-v="2v2">۲ به ۲</button><button data-v="3">۳ نفره</button><button data-v="4">۴ نفره</button></div></div>
+  <div class="row"><span>حالت بازی</span><div class="opts" data-k="players"><button data-v="1v1">۱ نفره</button><button data-v="2v2">۲ به ۲</button><button data-v="3">۳ نفره</button><button data-v="4">۴ نفره</button><button data-v="online">۲ نفره آنلاین</button></div></div>
   <div class="row"><span>خونه های امن</span><div class="opts" data-k="safe"><button data-v="off">خاموش</button><button data-v="on">روشن</button></div></div>
   <div class="row"><span>هدف (چند مهره)</span><div class="opts" data-k="goals"><button data-v="2">۲</button><button data-v="4">۴</button></div></div>
   <div class="row"><span>خروج در نوبت اول</span><div class="opts" data-k="firstExit"><button data-v="off">خاموش</button><button data-v="on">روشن</button></div></div>
@@ -41,6 +49,21 @@ h1{text-align:center;font-size:18px;margin:10px 0;}
   <canvas id="board"></canvas>
   <div id="status">آماده</div>
   <button id="dice">🎲 رول تاس</button>
+</div>
+
+<div id="roomUI">
+  <div id="roomStep1">
+    <button id="createRoomBtn">➕ ساخت اتاق جدید</button>
+    <div class="hint">یا کد اتاق دوستت رو وارد کن:</div>
+    <input id="roomCodeInput" maxlength="5" placeholder="کد ۵ حرفی" autocomplete="off">
+    <button id="joinRoomBtn" class="alt">🔗 ورود به اتاق</button>
+    <button id="cancelRoomBtn" class="alt">لغو</button>
+  </div>
+  <div id="roomStep2" style="display:none;flex-direction:column;align-items:center;gap:16px;">
+    <div class="hint">این کد رو به دوستت بده:</div>
+    <div class="code-box" id="roomCodeShow">-----</div>
+    <div class="hint" id="waitingHint">در انتظار حریف...</div>
+  </div>
 </div>
 
 <div id="err"></div>
@@ -56,6 +79,8 @@ window.onerror=function(m,s,l,c){
 <script>
 (function(){
 'use strict';
+
+var SERVER_URL = "https://angel-bot-kfx-angel-ludo.runflare.cloud";
 
 var DEF={players:'1v1',safe:'on',goals:'2',firstExit:'off'};
 var settings={players:'1v1',safe:'on',goals:'2',firstExit:'off'};
@@ -119,6 +144,9 @@ var P=[
 
 var active=[],tokens=[],cur=0,dice=0,rolled=false,over=false,busy=false,firstRollDone=false;
 var teams={};
+var socket=null;
+var myPlayerIndex=0; // 0 = میزبان (آبی), 1 = مهمان (قرمز)
+var isOnline=false;
 var canvas=document.getElementById('board');
 var ctx=canvas.getContext('2d');
 var statusEl=document.getElementById('status');
@@ -127,6 +155,7 @@ var diceBtn=document.getElementById('dice');
 function isSafe(i){return settings.safe==='on'&&SAFE.indexOf(i)>=0;}
 function startSquareOf(idx){for(var p=0;p<4;p++)if(P[p].start===idx)return p;return -1;}
 function isTeammate(p1,p2){return teams[p1]!==undefined&&teams[p1]===teams[p2];}
+function isMyTurn(){return isOnline ? cur===myPlayerIndex : cur===active[0];}
 
 function initTokens(){
   tokens=[];
@@ -237,7 +266,7 @@ function draw(){
 }
 
 function drawTokens(){
-  var r=CELL*0.70; // اندازه جدید - دو برابر بزرگتر
+  var r=CELL*0.70;
   var mv=getMovable();
   for(var i=0;i<tokens.length;i++){
     var t=tokens[i];
@@ -264,6 +293,7 @@ function drawTokens(){
 
 function getMovable(){
   if(!rolled||over||busy)return [];
+  if(!isMyTurn())return [];
   var arr=[];
   for(var i=0;i<tokens.length;i++){
     if(tokens[i].player===cur&&canMove(tokens[i],dice))arr.push(tokens[i]);
@@ -278,7 +308,7 @@ function startMove(t,d,cb){
   if(from===0){t.wps.push(gridOf(t.player,1,t.idx));}
   else{for(var p=from+1;p<=to;p++)t.wps.push(gridOf(t.player,p,t.idx));}
   t.moving=true;
-  var speed=0.06; // سرعت جدید - دو برابر کندتر
+  var speed=0.06;
   function step(){
     if(t.wps.length===0){
       t.moving=false;t.pos=to;
@@ -338,13 +368,19 @@ function checkWin(){
 
 function rollDice(){
   if(over||rolled||busy)return;
+  if(!isMyTurn())return;
   sfx.dice();
   var ticks=0;
   var iv=setInterval(function(){
     dice=Math.floor(Math.random()*6)+1;
     diceBtn.textContent='🎲 '+['⚀','⚁','⚂','⚃','⚄','⚅'][dice-1];
-    if(++ticks>=6){clearInterval(iv);settled();} // ۶ تیک به جای ۸
-  },140); // ۱۴۰ms به جای ۷۰ms
+    if(++ticks>=6){
+      clearInterval(iv);
+      settled();
+      // ارسال تاس به حریف
+      if(isOnline&&socket){socket.emit("game_action",{type:"dice",value:dice});}
+    }
+  },140);
 }
 
 function settled(){
@@ -354,25 +390,31 @@ function settled(){
   draw();updateStatus();
   if(mv.length===0){
     setTimeout(function(){
-      if(dice===6){rolled=false;dice=0;diceBtn.textContent='🎲 رول تاس';updateStatus();if(cur!==active[0])setTimeout(aiTurn,400);}
+      if(dice===6){rolled=false;dice=0;diceBtn.textContent='🎲 رول تاس';updateStatus();if(!isMyTurn()&&!isOnline)setTimeout(aiTurn,400);}
       else nextTurn();
     },700);
     return;
   }
-  if(cur!==active[0])setTimeout(function(){aiMove(mv);},500);
-  else if(mv.length===1)setTimeout(function(){doMove(mv[0]);},300);
+  if(!isMyTurn()&&!isOnline)setTimeout(function(){aiMove(mv);},500);
+  else if(mv.length===1&&!isOnline)setTimeout(function(){doMove(mv[0]);},300);
+  else if(mv.length===1&&isOnline&&isMyTurn())setTimeout(function(){doMove(mv[0]);},300);
 }
 
-function aiTurn(){if(over||cur===active[0]||busy)return;rollDice();}
+function aiTurn(){if(over||isMyTurn()||busy)return;rollDice();}
 
 function doMove(t){
   var d=dice;
+  var from=t.pos;
   startMove(t,d,function(){
     firstRollDone=true;
     diceBtn.textContent='🎲 رول تاس';
+    // ارسال حرکت به حریف
+    if(isOnline&&socket){
+      socket.emit("game_action",{type:"move",player:t.player,idx:t.idx,from:from,to:t.pos});
+    }
     var w=checkWin();
     if(w>=0){over=true;sfx.win();updateStatus();draw();return;}
-    if(d===6){rolled=false;dice=0;updateStatus();draw();if(cur!==active[0])setTimeout(aiTurn,400);return;}
+    if(d===6){rolled=false;dice=0;updateStatus();draw();if(!isMyTurn()&&!isOnline)setTimeout(aiTurn,400);return;}
     nextTurn();
   });
 }
@@ -410,36 +452,46 @@ function nextTurn(){
   rolled=false;dice=0;
   diceBtn.textContent='🎲 رول تاس';
   updateStatus();draw();
-  if(cur!==active[0]&&!over)setTimeout(aiTurn,500);
+  if(!isMyTurn()&&!isOnline&&!over)setTimeout(aiTurn,500);
 }
 
 function updateStatus(){
   if(over){
     var w=checkWin();
-    if(w===1)statusEl.innerHTML='🏆 برنده: تیم <b style="color:'+P[0].color+'">آبی</b> + <b style="color:'+P[2].color+'">سبز</b>';
-    else if(w===2)statusEl.innerHTML='🏆 برنده: تیم <b style="color:'+P[1].color+'">قرمز</b> + <b style="color:'+P[3].color+'">زرد</b>';
+    if(w===1)statusEl.innerHTML='🏆 برنده: تیم <b style="color:'+P[0].color+'">آبی</b>';
+    else if(w===2)statusEl.innerHTML='🏆 برنده: تیم <b style="color:'+P[1].color+'">قرمز</b>';
     else if(w>=0)statusEl.innerHTML='🏆 برنده: <b style="color:'+P[w].color+'">'+P[w].name+'</b>';
     diceBtn.disabled=true;
     return;
   }
   var p=P[cur];
-  var who=cur===active[0]?' (شما)':' (ربات)';
+  var who='';
+  if(isOnline) who = isMyTurn()?' (شما)':' (حریف)';
+  else who = isMyTurn()?' (شما)':' (ربات)';
   var teamInfo='';
   if(settings.players==='2v2'&&teams[cur])teamInfo=' [تیم '+teams[cur]+']';
   statusEl.innerHTML='نوبت: <b style="color:'+p.color+'">'+p.name+'</b>'+who+teamInfo;
-  diceBtn.disabled=cur!==active[0]||rolled||busy||over;
+  diceBtn.disabled=!isMyTurn()||rolled||busy||over;
 }
 
 function newGame(){
   teams={};
-  if(settings.players==='1v1'){
+  if(settings.players==='online'){
+    isOnline=true;
+    active=[0,1];
+    myPlayerIndex=0; // بعد از join معلوم میشه
+  } else if(settings.players==='1v1'){
+    isOnline=false;
     active=[0,1];
   } else if(settings.players==='2v2'){
+    isOnline=false;
     active=[0,1,2,3];
     teams={0:1,2:1,1:2,3:2};
   } else if(settings.players==='3'){
+    isOnline=false;
     active=[0,1,2];
   } else {
+    isOnline=false;
     active=[0,1,2,3];
   }
   initTokens();
@@ -449,55 +501,5 @@ function newGame(){
   diceBtn.disabled=false;
 }
 
-document.getElementById('playBtn').onclick=function(){
-  getAudio();
-  document.getElementById('settings').className='off';
-  document.getElementById('game').className='on';
-  newGame();
-  setTimeout(function(){resize();updateStatus();draw();},50);
-};
-
-document.getElementById('back').onclick=function(){
-  document.getElementById('settings').className='';
-  document.getElementById('game').className='';
-};
-
-document.getElementById('mute').onclick=function(){
-  muted=!muted;
-  this.textContent=muted?'🔇':'🔊';
-};
-
-diceBtn.onclick=function(){
-  if(cur!==active[0]||rolled||over||busy)return;
-  getAudio();
-  rollDice();
-};
-
-canvas.onclick=function(e){
-  if(over||cur!==active[0]||!rolled||busy)return;
-  var rect=canvas.getBoundingClientRect();
-  var gx=(e.clientX-rect.left)/CELL;
-  var gy=(e.clientY-rect.top)/CELL;
-  var mv=getMovable();
-  var best=null,bd=0.7;
-  for(var i=0;i<mv.length;i++){
-    var t=mv[i];
-    var g=gridOf(t.player,t.pos,t.idx);
-    var dx=g[0]-gx,dy=g[1]-gy;
-    var d=Math.sqrt(dx*dx+dy*dy);
-    if(d<bd){bd=d;best=t;}
-  }
-  if(best)doMove(best);
-};
-
-window.onresize=resize;
-
-initTokens();
-resize();
-loop();
-document.addEventListener('click',function(){getAudio();},{once:true});
-
-})();
-</script>
-</body>
-</html>
+// ---------- Online ----------
+function co
