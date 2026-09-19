@@ -1,0 +1,488 @@
+<!DOCTYPE html>
+<html lang="fa" dir="rtl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>منچ</title>
+<style>
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body {
+  font-family: system-ui, sans-serif;
+  background: linear-gradient(180deg, #0a0e27 0%, #05060c 100%);
+  color: #fff;
+  min-height: 100vh;
+  padding: 20px;
+}
+h1 { text-align: center; font-size: 32px; color: #fbbf24; margin: 20px 0; }
+.hidden { display: none !important; }
+.card {
+  background: rgba(30, 41, 59, 0.6);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 20px;
+  padding: 8px;
+  margin: 20px 0;
+}
+.row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 14px;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.row + .row { border-top: 1px solid rgba(255, 255, 255, 0.06); }
+.row-label { font-size: 14px; color: #e2e8f0; font-weight: 600; }
+.opts { display: flex; gap: 4px; flex-wrap: wrap; background: rgba(0,0,0,0.3); padding: 4px; border-radius: 12px; }
+.opts button {
+  background: transparent;
+  border: none;
+  color: #64748b;
+  font-family: inherit;
+  font-size: 12px;
+  font-weight: 700;
+  padding: 8px 12px;
+  border-radius: 9px;
+  cursor: pointer;
+}
+.opts button.on {
+  background: linear-gradient(135deg, #6366f1, #8b5cf6);
+  color: #fff;
+}
+#playBtn {
+  display: block;
+  width: 100%;
+  padding: 18px;
+  background: linear-gradient(135deg, #6366f1, #8b5cf6, #ec4899);
+  color: #fff;
+  border: none;
+  border-radius: 18px;
+  font-family: inherit;
+  font-size: 18px;
+  font-weight: 800;
+  cursor: pointer;
+  margin-top: 20px;
+}
+#game {
+  display: none;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  min-height: 100vh;
+}
+#game.on { display: flex; }
+#board { background: #fff; border-radius: 12px; }
+#status {
+  margin: 12px 0;
+  padding: 12px 20px;
+  background: rgba(30, 41, 59, 0.9);
+  border-radius: 12px;
+  font-weight: 700;
+  font-size: 14px;
+}
+#diceBtn {
+  padding: 16px 32px;
+  background: linear-gradient(135deg, #f59e0b, #f97316);
+  color: #fff;
+  border: none;
+  border-radius: 14px;
+  font-family: inherit;
+  font-size: 17px;
+  font-weight: 800;
+  cursor: pointer;
+}
+#diceBtn:disabled { opacity: 0.4; }
+#backBtn {
+  position: fixed;
+  top: 12px;
+  right: 12px;
+  padding: 10px 14px;
+  background: rgba(30, 41, 59, 0.9);
+  color: #fff;
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  border-radius: 10px;
+  font-family: inherit;
+  cursor: pointer;
+}
+</style>
+</head>
+<body>
+
+<div id="settings">
+  <h1>🎲 منچ</h1>
+  <div class="card">
+    <div class="row">
+      <div class="row-label">حالت بازی</div>
+      <div class="opts" id="optPlayers">
+        <button type="button" data-v="1v1" class="on">۱ نفره</button>
+        <button type="button" data-v="2v2">۲ به ۲</button>
+        <button type="button" data-v="3">۳ نفره</button>
+        <button type="button" data-v="4">۴ نفره</button>
+      </div>
+    </div>
+  </div>
+  <button type="button" id="playBtn">✨ شروع بازی</button>
+</div>
+
+<div id="game">
+  <button type="button" id="backBtn">← بازگشت</button>
+  <canvas id="board"></canvas>
+  <div id="status">آماده</div>
+  <button type="button" id="diceBtn">🎲 رول تاس</button>
+</div>
+
+<script>
+var cfg = { players: '1v1' };
+
+var pBtns = document.querySelectorAll('#optPlayers button');
+for (var i = 0; i < pBtns.length; i++) {
+  pBtns[i].onclick = function() {
+    for (var j = 0; j < pBtns.length; j++) pBtns[j].className = '';
+    this.className = 'on';
+    cfg.players = this.getAttribute('data-v');
+  };
+}
+
+var GRID = 15, CELL = 30;
+var path = [[1,6],[2,6],[3,6],[4,6],[5,6],[6,5],[6,4],[6,3],[6,2],[6,1],[6,0],[7,0],[8,0],[8,1],[8,2],[8,3],[8,4],[8,5],[9,6],[10,6],[11,6],[12,6],[13,6],[14,6],[14,7],[14,8],[13,8],[12,8],[11,8],[10,8],[9,8],[8,9],[8,10],[8,11],[8,12],[8,13],[8,14],[7,14],[6,14],[6,13],[6,12],[6,11],[6,10],[6,9],[5,8],[4,8],[3,8],[2,8],[1,8],[0,8],[0,7],[0,6]];
+var SAFE = [0, 8, 13, 21, 26, 34, 39, 47];
+var P = [
+  {name:'آبی',  color:'#3b82f6', dark:'#1e40af', light:'#93c5fd', start:0,  home:[[1,7],[2,7],[3,7],[4,7],[5,7]],  base:[[1.7,1.7],[4.3,1.7],[1.7,4.3],[4.3,4.3]],  box:[0,0]},
+  {name:'قرمز', color:'#ef4444', dark:'#991b1b', light:'#fca5a5', start:13, home:[[7,1],[7,2],[7,3],[7,4],[7,5]],  base:[[10.7,1.7],[13.3,1.7],[10.7,4.3],[13.3,4.3]], box:[9,0]},
+  {name:'سبز',  color:'#10b981', dark:'#065f46', light:'#6ee7b7', start:26, home:[[13,7],[12,7],[11,7],[10,7],[9,7]], base:[[10.7,10.7],[13.3,10.7],[10.7,13.3],[13.3,13.3]], box:[9,9]},
+  {name:'زرد',  color:'#f59e0b', dark:'#b45309', light:'#fcd34d', start:39, home:[[7,13],[7,12],[7,11],[7,10],[7,9]], base:[[1.7,10.7],[4.3,10.7],[1.7,13.3],[4.3,13.3]], box:[0,9]}
+];
+
+var active = [], tokens = [], cur = 0, dice = 0;
+var rolled = false, over = false, busy = false;
+var canvas = document.getElementById('board');
+var ctx = canvas.getContext('2d');
+var statusEl = document.getElementById('status');
+var diceBtn = document.getElementById('diceBtn');
+
+function initTokens() {
+  tokens = [];
+  for (var p = 0; p < 4; p++) {
+    for (var i = 0; i < 4; i++) {
+      tokens.push({
+        player: p, idx: i, pos: 0,
+        vx: P[p].base[i][0], vy: P[p].base[i][1],
+        wps: [], moving: false
+      });
+    }
+  }
+}
+
+function gridOf(pl, pos, idx) {
+  if (pos === 0) return [P[pl].base[idx][0], P[pl].base[idx][1]];
+  if (pos <= 51) { var a = (P[pl].start + pos - 1) % 52; return [path[a][0] + 0.5, path[a][1] + 0.5]; }
+  if (pos <= 56) { var h = P[pl].home[pos - 52]; return [h[0] + 0.5, h[1] + 0.5]; }
+  return [7.5, 7.5];
+}
+
+function canMove(t, d) {
+  if (t.pos === 57) return false;
+  if (t.pos === 0) return d === 6;
+  return t.pos + d <= 57;
+}
+
+function resize() {
+  var mw = Math.min(window.innerWidth - 16, 460);
+  var mh = window.innerHeight - 200;
+  var sz = Math.min(mw, mh);
+  CELL = Math.floor(sz / GRID);
+  var s = CELL * GRID, dpr = window.devicePixelRatio || 1;
+  canvas.width = s * dpr;
+  canvas.height = s * dpr;
+  canvas.style.width = s + 'px';
+  canvas.style.height = s + 'px';
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  draw();
+}
+
+function rr(x, y, w, h, r) {
+  ctx.beginPath();
+  ctx.moveTo(x + r, y);
+  ctx.arcTo(x + w, y, x + w, y + h, r);
+  ctx.arcTo(x + w, y + h, x, y + h, r);
+  ctx.arcTo(x, y + h, x, y, r);
+  ctx.arcTo(x, y, x + w, y, r);
+  ctx.closePath();
+}
+
+function draw() {
+  if (!CELL) return;
+  var s = CELL * GRID;
+  ctx.clearRect(0, 0, s, s);
+  ctx.fillStyle = '#f0f4f8';
+  ctx.fillRect(0, 0, s, s);
+
+  for (var p = 0; p < 4; p++) {
+    var bx = P[p].box[0] * CELL, by = P[p].box[1] * CELL;
+    ctx.fillStyle = P[p].color;
+    rr(bx + 3, by + 3, 6 * CELL - 6, 6 * CELL - 6, 14);
+    ctx.fill();
+    ctx.fillStyle = '#fff';
+    rr(bx + CELL * 0.9, by + CELL * 0.9, 6 * CELL - CELL * 1.8, 6 * CELL - CELL * 1.8, 10);
+    ctx.fill();
+  }
+
+  for (var i = 0; i < 52; i++) {
+    var c = path[i][0], r = path[i][1];
+    var startP = -1;
+    for (var pp = 0; pp < 4; pp++) if (P[pp].start === i) startP = pp;
+    var fill = '#fff', stroke = '#cbd5e1';
+    if (startP >= 0) { fill = P[startP].color; stroke = P[startP].dark; }
+    else if (SAFE.indexOf(i) >= 0) { fill = '#fef3c7'; stroke = '#d97706'; }
+    ctx.fillStyle = fill;
+    ctx.fillRect(c * CELL + 1.5, r * CELL + 1.5, CELL - 3, CELL - 3);
+    ctx.strokeStyle = stroke;
+    ctx.lineWidth = 1.2;
+    ctx.strokeRect(c * CELL + 1.5, r * CELL + 1.5, CELL - 3, CELL - 3);
+  }
+
+  for (var a = 0; a < active.length; a++) {
+    var pl = active[a], hc = P[pl].home;
+    for (var j = 0; j < hc.length; j++) {
+      ctx.fillStyle = P[pl].color;
+      ctx.fillRect(hc[j][0] * CELL + 1.5, hc[j][1] * CELL + 1.5, CELL - 3, CELL - 3);
+    }
+  }
+
+  var cx = 7.5 * CELL, cy = 7.5 * CELL;
+  var x0 = 6 * CELL, y0 = 6 * CELL, x1 = 9 * CELL, y1 = 9 * CELL;
+  ctx.fillStyle = P[0].color;
+  ctx.beginPath(); ctx.moveTo(cx, cy); ctx.lineTo(x0, y0); ctx.lineTo(x0, y1); ctx.closePath(); ctx.fill();
+  ctx.fillStyle = P[1].color;
+  ctx.beginPath(); ctx.moveTo(cx, cy); ctx.lineTo(x0, y0); ctx.lineTo(x1, y0); ctx.closePath(); ctx.fill();
+  ctx.fillStyle = P[2].color;
+  ctx.beginPath(); ctx.moveTo(cx, cy); ctx.lineTo(x1, y0); ctx.lineTo(x1, y1); ctx.closePath(); ctx.fill();
+  ctx.fillStyle = P[3].color;
+  ctx.beginPath(); ctx.moveTo(cx, cy); ctx.lineTo(x0, y1); ctx.lineTo(x1, y1); ctx.closePath(); ctx.fill();
+  ctx.strokeStyle = '#94a3b8';
+  ctx.lineWidth = 2;
+  ctx.strokeRect(x0, y0, x1 - x0, y1 - y0);
+
+  var r = CELL * 0.68;
+  var mv = getMovable();
+  for (var i2 = 0; i2 < tokens.length; i2++) {
+    var t = tokens[i2];
+    if (active.indexOf(t.player) < 0) continue;
+    var px = t.vx * CELL, py = t.vy * CELL;
+    ctx.fillStyle = '#fff';
+    ctx.beginPath(); ctx.arc(px, py, r, 0, Math.PI * 2); ctx.fill();
+    ctx.fillStyle = P[t.player].color;
+    ctx.beginPath(); ctx.arc(px, py, r * 0.85, 0, Math.PI * 2); ctx.fill();
+    ctx.fillStyle = '#fff';
+    ctx.beginPath(); ctx.arc(px, py, r * 0.4, 0, Math.PI * 2); ctx.fill();
+    ctx.fillStyle = P[t.player].dark;
+    ctx.beginPath(); ctx.arc(px, py, r * 0.22, 0, Math.PI * 2); ctx.fill();
+    if (mv.indexOf(t) >= 0) {
+      ctx.strokeStyle = '#fff';
+      ctx.lineWidth = 3;
+      ctx.beginPath(); ctx.arc(px, py, r + 4, 0, Math.PI * 2); ctx.stroke();
+    }
+  }
+}
+
+function getMovable() {
+  if (!rolled || over || busy) return [];
+  if (cur !== active[0]) return [];
+  var arr = [];
+  for (var i = 0; i < tokens.length; i++) {
+    if (tokens[i].player === cur && canMove(tokens[i], dice)) arr.push(tokens[i]);
+  }
+  return arr;
+}
+
+function startMove(t, d, cb) {
+  busy = true;
+  var from = t.pos;
+  var to = from === 0 ? 1 : from + d;
+  t.wps = [];
+  if (from === 0) {
+    t.wps.push(gridOf(t.player, 1, t.idx));
+  } else {
+    for (var p = from + 1; p <= to; p++) t.wps.push(gridOf(t.player, p, t.idx));
+  }
+  t.moving = true;
+  var speed = 0.06;
+  function step() {
+    if (t.wps.length === 0) {
+      t.moving = false;
+      t.pos = to;
+      setTimeout(function() { busy = false; cb(); }, 150);
+      return;
+    }
+    var tg = t.wps[0];
+    var dx = tg[0] - t.vx, dy = tg[1] - t.vy;
+    var dist = Math.sqrt(dx * dx + dy * dy);
+    if (dist < speed) {
+      t.vx = tg[0]; t.vy = tg[1];
+      t.wps.shift();
+      requestAnimationFrame(step);
+    } else {
+      t.vx += dx / dist * speed;
+      t.vy += dy / dist * speed;
+      requestAnimationFrame(step);
+    }
+  }
+  step();
+}
+
+function checkWin() {
+  for (var a = 0; a < active.length; a++) {
+    var p = active[a], c = 0;
+    for (var i = 0; i < tokens.length; i++) if (tokens[i].player === p && tokens[i].pos === 57) c++;
+    if (c >= 2) return p;
+  }
+  return -1;
+}
+
+function rollDice() {
+  if (over || rolled || busy) return;
+  if (cur !== active[0]) return;
+  var ticks = 0;
+  var iv = setInterval(function() {
+    dice = Math.floor(Math.random() * 6) + 1;
+    diceBtn.textContent = '🎲 ' + ['⚀','⚁','⚂','⚃','⚄','⚅'][dice - 1];
+    if (++ticks >= 6) {
+      clearInterval(iv);
+      settled();
+    }
+  }, 140);
+}
+
+function settled() {
+  rolled = true;
+  diceBtn.textContent = '🎲 ' + dice + ' ' + ['⚀','⚁','⚂','⚃','⚄','⚅'][dice - 1];
+  var mv = getMovable();
+  draw();
+  updateStatus();
+  if (mv.length === 0) {
+    setTimeout(function() {
+      if (dice === 6) {
+        rolled = false;
+        dice = 0;
+        diceBtn.textContent = '🎲 رول تاس';
+        updateStatus();
+      } else {
+        nextTurn();
+      }
+    }, 700);
+    return;
+  }
+  if (mv.length === 1) {
+    setTimeout(function() { doMove(mv[0]); }, 300);
+  }
+}
+
+function doMove(t) {
+  var d = dice;
+  startMove(t, d, function() {
+    diceBtn.textContent = '🎲 رول تاس';
+    var w = checkWin();
+    if (w >= 0) {
+      over = true;
+      statusEl.textContent = '🏆 برنده: ' + P[w].name;
+      diceBtn.disabled = true;
+      draw();
+      return;
+    }
+    if (d === 6) {
+      rolled = false;
+      dice = 0;
+      updateStatus();
+      draw();
+      return;
+    }
+    nextTurn();
+  });
+}
+
+function nextTurn() {
+  var i = active.indexOf(cur);
+  cur = active[(i + 1) % active.length];
+  rolled = false;
+  dice = 0;
+  diceBtn.textContent = '🎲 رول تاس';
+  updateStatus();
+  draw();
+}
+
+function updateStatus() {
+  if (over) return;
+  var p = P[cur];
+  var who = cur === active[0] ? ' (شما)' : ' (ربات)';
+  statusEl.textContent = 'نوبت: ' + p.name + who;
+  diceBtn.disabled = cur !== active[0] || rolled || busy || over;
+}
+
+function newGame() {
+  if (cfg.players === '1v1') active = [0, 1];
+  else if (cfg.players === '2v2') active = [0, 1, 2, 3];
+  else if (cfg.players === '3') active = [0, 1, 2];
+  else active = [0, 1, 2, 3];
+  initTokens();
+  cur = active[0];
+  dice = 0;
+  rolled = false;
+  over = false;
+  busy = false;
+  diceBtn.textContent = '🎲 رول تاس';
+  diceBtn.disabled = false;
+}
+
+document.getElementById('playBtn').onclick = function() {
+  document.getElementById('settings').className = 'hidden';
+  document.getElementById('game').className = 'on';
+  newGame();
+  setTimeout(function() {
+    resize();
+    updateStatus();
+    draw();
+  }, 100);
+};
+
+document.getElementById('backBtn').onclick = function() {
+  document.getElementById('settings').className = '';
+  document.getElementById('game').className = '';
+};
+
+diceBtn.onclick = function() {
+  if (cur !== active[0] || rolled || over || busy) return;
+  rollDice();
+};
+
+canvas.onclick = function(e) {
+  if (over || cur !== active[0] || !rolled || busy) return;
+  var rect = canvas.getBoundingClientRect();
+  var gx = (e.clientX - rect.left) / CELL;
+  var gy = (e.clientY - rect.top) / CELL;
+  var mv = getMovable();
+  var best = null, bd = 0.7;
+  for (var i = 0; i < mv.length; i++) {
+    var t = mv[i];
+    var g = gridOf(t.player, t.pos, t.idx);
+    var dx = g[0] - gx, dy = g[1] - gy;
+    var d = Math.sqrt(dx * dx + dy * dy);
+    if (d < bd) { bd = d; best = t; }
+  }
+  if (best) doMove(best);
+};
+
+window.addEventListener('resize', resize);
+
+function loop() {
+  var animating = false;
+  for (var i = 0; i < tokens.length; i++) {
+    if (tokens[i].moving) { animating = true; break; }
+  }
+  if (animating) draw();
+  requestAnimationFrame(loop);
+}
+
+initTokens();
+loop();
+</script>
+</body>
+          </html>
