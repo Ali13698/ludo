@@ -31,8 +31,8 @@ window.SFX = {
     for (var i = 0; i < 6; i++) this.tone(400 + Math.random() * 400, 0.06, 'square', 0.08, i * 0.06);
   },
   step: function() {
-    this.tone(160, 0.05, 'triangle', 0.06);
-    this.tone(90, 0.04, 'sine', 0.04, 0.02);
+    this.tone(180, 0.07, 'triangle', 0.14);
+    this.tone(100, 0.04, 'sine', 0.10, 0.02);
   },
   capture: function() {
     this.tone(700, 0.10, 'square', 0.20);
