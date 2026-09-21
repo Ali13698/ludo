@@ -1,0 +1,64 @@
+name: Deploy to Cloudflare Workers
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install dependencies
+        run: npm install
+
+      - name: Build with Vite
+        run: npm run build
+
+      - name: Verify build
+        run: |
+          echo "=== dist ==="
+          ls -lah dist/
+          echo "=== dist/assets ==="
+          ls -lah dist/assets/ 2>/dev/null || echo "no assets"
+
+      - name: Deploy to Cloudflare Workers
+        id: deploy
+        continue-on-error: true
+        uses: cloudflare/wrangler-action@v3
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          command: deploy
+          quiet: false
+
+      - name: Save wrangler log
+        if: always()
+        run: |
+          if [ -d "$HOME/.wrangler" ]; then
+            cp -r "$HOME/.wrangler" ./wrangler-logs || true
+          fi
+          echo "Deploy outcome: ${{ steps.deploy.outcome }}"
+
+      - name: Upload logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: deploy-logs
+          path: |
+            wrangler-logs/
+          if-no-files-found: warn
+
+      - name: Fail if deploy failed
+        if: steps.deploy.outcome != 'success'
+        run: exit 1
