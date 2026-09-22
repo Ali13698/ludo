@@ -20,9 +20,16 @@
     async function boot() {
         try {
             initDOM();
-            console.log('[boot] Application initialized successfully.');
+
+            if (typeof setupOnlineEvents === 'function') setupOnlineEvents();
+            if (typeof setupLobby === 'function') setupLobby();
+            if (typeof setupInputHandlers === 'function') setupInputHandlers();
+
+            showScreen('menu'); 
+            
+            console.log('[boot] Application initialized successfully with all modules.');
         } catch (err) {
-            console.error('[boot] Error:', err);
+            console.error('[boot] Error during boot:', err);
         }
     }
 
