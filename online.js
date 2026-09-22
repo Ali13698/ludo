@@ -28,7 +28,7 @@ window.Online = {
       }
       const timeout = setTimeout(() => {
         if (!this.connected) reject(new Error("اتصال ناموفق"));
-      }, 8000);
+      }, 30000);
 
       this.ws.onopen = () => {
         clearTimeout(timeout);
