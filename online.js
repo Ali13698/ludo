@@ -32,7 +32,7 @@ window.Online = {
       } catch (e) { reject(e); return; }
       const timeout = setTimeout(() => {
         if (!this.connected) reject(new Error('اتصال ناموفق'));
-      }, 30000);
+      }, 8000);
 
       this.ws.onopen = () => {
         clearTimeout(timeout);
